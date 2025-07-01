@@ -4,7 +4,7 @@ from docx import Document
 from docx.oxml import OxmlElement
 from docx.text.paragraph import Paragraph
 from docx.shared import RGBColor, Pt
-
+import os
 app = Flask(__name__)
 
 def insert_paragraph_after(paragraph):
