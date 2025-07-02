@@ -1,11 +1,10 @@
-import base64
-import json
-from flask import Flask, request, send_file, abort
+from flask import Flask, request, jsonify, abort
 from io import BytesIO
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.text.paragraph import Paragraph
 from docx.shared import RGBColor, Pt
+import base64
 import os
 
 app = Flask(__name__)
@@ -29,7 +28,7 @@ def add_blue_bullet(paragraph, text):
     run_bullet.font.color.rgb = RGBColor(0, 102, 204)
     run_bullet.font.size = Pt(11)
 
-    run_spacing = paragraph.add_run("      ")
+    run_spacing = paragraph.add_run("      ")  # Manual wide spacing
     run_text = paragraph.add_run(text)
     run_text.font.size = Pt(11)
 
@@ -37,64 +36,65 @@ def add_blue_bullet(paragraph, text):
 def modify_docx():
     try:
         data = request.get_json()
-        file_base64 = data.get('file_base64')
-        competences = data.get('competences', [])
-        filename = data.get('filename')
+        if not data:
+            return abort(400, "Missing JSON body")
 
+        file_base64 = data.get("file_base64")
+        competences = data.get("competences")
         if not file_base64 or not competences:
-            return abort(400, "Missing file or competences")
+            return abort(400, "Missing file_base64 or competences")
 
-        # Decode base64 file content
-        file_bytes = base64.b64decode(file_base64)
-        file_stream = BytesIO(file_bytes)
-        doc = Document(file_stream)
+        # Decode DOCX
+        docx_bytes = base64.b64decode(file_base64)
+        doc = Document(BytesIO(docx_bytes))
 
-        # Remove old section
+        # Remove existing "Connaissances Métier" content
         found_section = False
         paras_to_delete = []
         for para in doc.paragraphs:
             if "Connaissances Métier" in para.text:
                 found_section = True
                 continue
+            if found_section and "COMPETENCES Projet" in para.text:
+                break
             if found_section:
-                if "COMPETENCES Projet" in para.text:
-                    break
                 paras_to_delete.append(para)
         for para in paras_to_delete:
             delete_paragraph(para)
 
-        # Find where to insert
+        # Find where to insert bullets
         insert_index = None
         for i, para in enumerate(doc.paragraphs):
             if "Connaissances Métier" in para.text:
                 insert_index = i + 1
                 break
         if insert_index is None:
-            return abort(400, "Could not find 'Connaissances Métier' section")
+            return abort(400, "'Connaissances Métier' not found")
 
         reference_para = doc.paragraphs[insert_index]
         previous_para = reference_para
 
         inserted_paragraphs = []
-        for comp in competences:
+        for text in competences:
             new_para = insert_paragraph_after(previous_para)
-            add_blue_bullet(new_para, comp)
+            add_blue_bullet(new_para, text)
             inserted_paragraphs.append(new_para)
             previous_para = new_para
 
+        # Reduce spacing after last bullet
         if inserted_paragraphs:
             inserted_paragraphs[-1].paragraph_format.space_after = Pt(3)
 
-        # Return modified docx as base64
+        # Return modified DOCX as base64
         out_stream = BytesIO()
         doc.save(out_stream)
         out_stream.seek(0)
-        encoded = base64.b64encode(out_stream.read()).decode('utf-8')
-
-        return {"base64": encoded}
+        return jsonify({
+            "base64": base64.b64encode(out_stream.read()).decode("utf-8")
+        })
 
     except Exception as e:
-        return abort(500, f"Error: {str(e)}")
+        return abort(500, str(e))
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
