@@ -37,18 +37,19 @@ def insert_horizontal_line_after(paragraph):
     new_p = insert_paragraph_after(paragraph)
     p = new_p._element
 
-    # Ajouter une bordure inférieure : pointillés ronds (dotted)
+    # Ajouter bordure inférieure pointillée, 0.48pt, couleur #3399CC
     pPr = p.get_or_add_pPr()
     pbdr = OxmlElement('w:pBdr')
     bottom = OxmlElement('w:bottom')
-    bottom.set(qn('w:val'), 'dotted')            # ← pointillés
-    bottom.set(qn('w:sz'), '12')                 # épaisseur
-    bottom.set(qn('w:space'), '1')               # espacement
-    bottom.set(qn('w:color'), '3399CC')          # ← couleur bleue personnalisée
+    bottom.set(qn('w:val'), 'dotted')        # Style pointillé
+    bottom.set(qn('w:sz'), '4')              # Taille 0.48pt
+    bottom.set(qn('w:space'), '1')           # Espacement
+    bottom.set(qn('w:color'), '3399CC')      # Couleur bleu turquoise
     pbdr.append(bottom)
     pPr.append(pbdr)
 
     return new_p
+
 
 @app.route('/modify_docx', methods=['POST'])
 def modify_docx():
@@ -89,7 +90,7 @@ def modify_docx():
 
         if cm_para is None:
             return abort(400, "'Connaissances Métier' not found")
-        cm_para.paragraph_format.space_after = Pt(3)  # ✅ réduit l’espace sous le titre
+        cm_para.paragraph_format.space_after = Pt(1)  # ✅ réduit l’espace sous le titre
 
         # Insérer le trait bleu juste après "Connaissances Métier"
         trait_para = insert_horizontal_line_after(cm_para)
