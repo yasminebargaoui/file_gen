@@ -1,3 +1,5 @@
+import base64
+import json
 from flask import Flask, request, send_file, abort
 from io import BytesIO
 from docx import Document
@@ -5,6 +7,7 @@ from docx.oxml import OxmlElement
 from docx.text.paragraph import Paragraph
 from docx.shared import RGBColor, Pt
 import os
+
 app = Flask(__name__)
 
 def insert_paragraph_after(paragraph):
@@ -32,80 +35,66 @@ def add_blue_bullet(paragraph, text):
 
 @app.route('/modify_docx', methods=['POST'])
 def modify_docx():
-    # Get uploaded file
-    if 'file' not in request.files:
-        return abort(400, "Missing 'file' part")
-    file = request.files['file']
-    if file.filename == '':
-        return abort(400, "No selected file")
-
-    # Get competencies as JSON list (or as form string split by commas)
-    competencies = request.form.get('competences')
-    if not competencies:
-        return abort(400, "Missing 'competences' data")
-    # Assume JSON list or comma-separated string
     try:
-        import json
-        competencies_list = json.loads(competencies)
-        if not isinstance(competencies_list, list):
-            raise ValueError
-    except Exception:
-        # fallback: comma separated string
-        competencies_list = [c.strip() for c in competencies.split(',') if c.strip()]
+        data = request.get_json()
+        file_base64 = data.get('file_base64')
+        competences = data.get('competences', [])
+        filename = data.get('filename', 'cv.docx')
 
-    # Load doc from uploaded file stream
-    doc = Document(file)
+        if not file_base64 or not competences:
+            return abort(400, "Missing file or competences")
 
-    # Find and remove old section paragraphs
-    found_section = False
-    paras_to_delete = []
-    for para in doc.paragraphs:
-        if "Connaissances Métier" in para.text:
-            found_section = True
-            continue
-        if found_section:
-            if "COMPETENCES Projet" in para.text:
+        # Decode base64 file content
+        file_bytes = base64.b64decode(file_base64)
+        file_stream = BytesIO(file_bytes)
+        doc = Document(file_stream)
+
+        # Remove old section
+        found_section = False
+        paras_to_delete = []
+        for para in doc.paragraphs:
+            if "Connaissances Métier" in para.text:
+                found_section = True
+                continue
+            if found_section:
+                if "COMPETENCES Projet" in para.text:
+                    break
+                paras_to_delete.append(para)
+        for para in paras_to_delete:
+            delete_paragraph(para)
+
+        # Find where to insert
+        insert_index = None
+        for i, para in enumerate(doc.paragraphs):
+            if "Connaissances Métier" in para.text:
+                insert_index = i + 1
                 break
-            paras_to_delete.append(para)
+        if insert_index is None:
+            return abort(400, "Could not find 'Connaissances Métier' section")
 
-    for para in paras_to_delete:
-        delete_paragraph(para)
+        reference_para = doc.paragraphs[insert_index]
+        previous_para = reference_para
 
-    # Find insertion point (paragraph after "Connaissances Métier")
-    insert_index = None
-    for i, para in enumerate(doc.paragraphs):
-        if "Connaissances Métier" in para.text:
-            insert_index = i + 1
-            break
+        inserted_paragraphs = []
+        for comp in competences:
+            new_para = insert_paragraph_after(previous_para)
+            add_blue_bullet(new_para, comp)
+            inserted_paragraphs.append(new_para)
+            previous_para = new_para
 
-    if insert_index is None:
-        return abort(400, "Could not find 'Connaissances Métier' section")
+        if inserted_paragraphs:
+            inserted_paragraphs[-1].paragraph_format.space_after = Pt(3)
 
-    reference_para = doc.paragraphs[insert_index]
-    previous_para = reference_para
+        # Return modified docx as base64
+        out_stream = BytesIO()
+        doc.save(out_stream)
+        out_stream.seek(0)
+        encoded = base64.b64encode(out_stream.read()).decode('utf-8')
 
-    inserted_paragraphs = []
-    for comp in competencies_list:
-        new_para = insert_paragraph_after(previous_para)
-        add_blue_bullet(new_para, comp)
-        inserted_paragraphs.append(new_para)
-        previous_para = new_para
+        return {"base64": encoded}
 
-    if inserted_paragraphs:
-        inserted_paragraphs[-1].paragraph_format.space_after = Pt(3)
-
-    # Save modified doc to bytes buffer
-    out_stream = BytesIO()
-    doc.save(out_stream)
-    out_stream.seek(0)
-
-    # Send modified docx as attachment
-    return send_file(
-        out_stream,
-        as_attachment=True,
-        download_name='modified.docx',
-        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    )
+    except Exception as e:
+        return abort(500, f"Error: {str(e)}")
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
