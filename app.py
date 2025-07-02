@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, abort
 from io import BytesIO
 from docx import Document
 from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 from docx.shared import RGBColor, Pt
 import base64
@@ -32,6 +33,23 @@ def add_blue_bullet(paragraph, text):
     run_text = paragraph.add_run(text)
     run_text.font.size = Pt(11)
 
+def insert_horizontal_line_after(paragraph):
+    new_p = insert_paragraph_after(paragraph)
+    p = new_p._element
+
+    # Ajouter bordure bleue
+    pPr = p.get_or_add_pPr()
+    pbdr = OxmlElement('w:pBdr')
+    bottom = OxmlElement('w:bottom')
+    bottom.set(qn('w:val'), 'single')
+    bottom.set(qn('w:sz'), '12')  # épaisseur
+    bottom.set(qn('w:space'), '1')
+    bottom.set(qn('w:color'), '0070C0')  # bleu SAP
+    pbdr.append(bottom)
+    pPr.append(pbdr)
+
+    return new_p
+
 @app.route('/modify_docx', methods=['POST'])
 def modify_docx():
     try:
@@ -48,7 +66,7 @@ def modify_docx():
         docx_bytes = base64.b64decode(file_base64)
         doc = Document(BytesIO(docx_bytes))
 
-        # Remove existing "Connaissances Métier" content
+        # Supprimer ancien contenu entre "Connaissances Métier" et "COMPETENCES Projet"
         found_section = False
         paras_to_delete = []
         for para in doc.paragraphs:
@@ -62,30 +80,34 @@ def modify_docx():
         for para in paras_to_delete:
             delete_paragraph(para)
 
-        # Find where to insert bullets
-        insert_index = None
-        for i, para in enumerate(doc.paragraphs):
+        # Trouver le paragraphe "Connaissances Métier"
+        cm_para = None
+        for para in doc.paragraphs:
             if "Connaissances Métier" in para.text:
-                insert_index = i + 1
+                cm_para = para
                 break
-        if insert_index is None:
+
+        if cm_para is None:
             return abort(400, "'Connaissances Métier' not found")
 
-        reference_para = doc.paragraphs[insert_index]
-        previous_para = reference_para
+        # Insérer le trait bleu juste après "Connaissances Métier"
+        trait_para = insert_horizontal_line_after(cm_para)
 
+        # Insérer les bullets après le trait
+        previous_para = trait_para
         inserted_paragraphs = []
+
         for text in competences:
             new_para = insert_paragraph_after(previous_para)
             add_blue_bullet(new_para, text)
             inserted_paragraphs.append(new_para)
             previous_para = new_para
 
-        # Reduce spacing after last bullet
+        # Réduire espace après dernier bullet
         if inserted_paragraphs:
             inserted_paragraphs[-1].paragraph_format.space_after = Pt(3)
 
-        # Return modified DOCX as base64
+        # Retourner le fichier modifié
         out_stream = BytesIO()
         doc.save(out_stream)
         out_stream.seek(0)
