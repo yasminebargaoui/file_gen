@@ -39,7 +39,7 @@ def modify_docx():
         data = request.get_json()
         file_base64 = data.get('file_base64')
         competences = data.get('competences', [])
-        filename = data.get('filename', 'cv.docx')
+        filename = data.get('filename')
 
         if not file_base64 or not competences:
             return abort(400, "Missing file or competences")
