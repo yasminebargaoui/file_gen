@@ -21,15 +21,17 @@ def delete_paragraph(paragraph):
     paragraph._p = paragraph._element = None
 
 def add_blue_bullet(paragraph, text):
-    paragraph.paragraph_format.left_indent = Pt(36)
+    paragraph.paragraph_format.left_indent = Pt(24)
     paragraph.paragraph_format.line_spacing = 1
-    paragraph.paragraph_format.space_after = Pt(12)
+    paragraph.paragraph_format.space_after = Pt(2)
 
-    run_bullet = paragraph.add_run("•")
-    run_bullet.font.color.rgb = RGBColor(0, 102, 204)
-    run_bullet.font.size = Pt(11)
+    run_bullet = paragraph.add_run("■")
+    # run_bullet.font.color.rgb = RGBColor(0, 153, 204)  # Couleur #3399CC
+    run_bullet.font.color.rgb = RGBColor(60, 122, 178)  # Couleur #3399CC
 
-    run_spacing = paragraph.add_run("      ")  # Manual wide spacing
+    run_bullet.font.size = Pt(8)
+
+    paragraph.add_run("      ")  # Espacement manuel large
     run_text = paragraph.add_run(text)
     run_text.font.size = Pt(11)
 
@@ -91,28 +93,23 @@ def modify_docx():
         if cm_para is None:
             return abort(400, "'Connaissances Métier' not found")
         cm_para.paragraph_format.space_after = Pt(1)  # ✅ réduit l’espace sous le titre
+# Réduire l'espace après "Connaissances Métier"
+        cm_para.paragraph_format.space_after = 1
 
-        # Insérer le trait bleu juste après "Connaissances Métier"
-        trait_para = insert_horizontal_line_after(cm_para)
-
-        # Insérer les bullets après le trait
-        previous_para = trait_para
-        inserted_paragraphs = []
-
-        for text in competences:
+# Insérer trait bleu pointillé après "Connaissances Métier"
+        line_para = insert_horizontal_line_after(cm_para)
+# Insérer les compétences après le trait
+        previous_para = line_para
+        for comp in competences:
             new_para = insert_paragraph_after(previous_para)
-            add_blue_bullet(new_para, text)
-            inserted_paragraphs.append(new_para)
+            new_para.paragraph_format.line_spacing = Pt(0)
+            add_blue_bullet(new_para, comp)
             previous_para = new_para
-
-        # Réduire espace après dernier bullet
-        if inserted_paragraphs:
-            inserted_paragraphs[-1].paragraph_format.space_after = Pt(3)
-
-        # Retourner le fichier modifié
-        out_stream = BytesIO()
-        doc.save(out_stream)
-        out_stream.seek(0)
+        previous_para.paragraph_format.space_after = Pt(9)
+# Sauvegarder dans un BytesIO puis encoder en base64
+        output_stream = BytesIO()
+        doc.save(output_stream)
+        output_stream.seek(0)        
         return jsonify({
             "base64": base64.b64encode(out_stream.read()).decode("utf-8")
         })
