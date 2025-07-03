@@ -111,7 +111,7 @@ def modify_docx():
         doc.save(output_stream)
         output_stream.seek(0)        
         return jsonify({
-            "base64": base64.b64encode(out_stream.read()).decode("utf-8")
+            "base64": base64.b64encode(output_stream.read()).decode("utf-8")
         })
 
     except Exception as e:
