@@ -1,4 +1,4 @@
-from flask import Flask, request, send_file, abort
+from flask import Flask, request, jsonify, abort
 from io import BytesIO
 from docx import Document
 from docx.oxml import OxmlElement
@@ -96,18 +96,21 @@ def modify_docx():
             previous_para = new_para
         previous_para.paragraph_format.space_after = Pt(9)
 
-        # Sauvegarde en mémoire (BytesIO)
+        # Sauvegarde dans un buffer mémoire
         output_stream = BytesIO()
         doc.save(output_stream)
         output_stream.seek(0)
 
-        # Envoie du fichier en téléchargement
-        return send_file(
-            output_stream,
-            as_attachment=True,
-            download_name="modified_output.docx",
-            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
+        # Encodage base64
+        base64_str = base64.b64encode(output_stream.read()).decode('utf-8')
+
+        # Découper en morceaux pour éviter les limites d’IRPA
+        chunk_size = 50000  # 50 KB max par chaîne
+        base64_parts = [base64_str[i:i + chunk_size] for i in range(0, len(base64_str), chunk_size)]
+
+        return jsonify({
+            "base64_parts": base64_parts
+        })
 
     except Exception as e:
         return abort(500, f"Erreur serveur: {str(e)}")
