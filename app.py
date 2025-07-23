@@ -108,9 +108,11 @@ def modify_docx():
         chunk_size = 32765  # 50 KB max par chaîne
         base64_parts = [base64_str[i:i + chunk_size] for i in range(0, len(base64_str), chunk_size)]
 
-        return jsonify({
-            "base64_parts": base64_parts
-        })
+        response = {}
+        for idx, part in enumerate(parts):
+            response[f"part{idx+1}"] = part
+
+        return jsonify(response)
 
     except Exception as e:
         return abort(500, f"Erreur serveur: {str(e)}")
