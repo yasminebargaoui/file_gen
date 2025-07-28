@@ -105,7 +105,7 @@ def modify_docx():
         base64_str = base64.b64encode(output_stream.read()).decode('utf-8')
 
         # Découper en morceaux pour éviter les limites d’IRPA
-        chunk_size = 32765  # 50 KB max par chaîne
+        chunk_size = 32000  # 50 KB max par chaîne
         parts = [base64_str[i:i + chunk_size] for i in range(0, len(base64_str), chunk_size)]
 
         response = {}
