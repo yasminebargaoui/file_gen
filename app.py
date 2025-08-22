@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, abort
+from flask import Flask, request, abort, send_from_directory, jsonify
 from io import BytesIO
 from docx import Document
 from docx.oxml import OxmlElement
@@ -7,10 +7,14 @@ from docx.text.paragraph import Paragraph
 from docx.shared import RGBColor, Pt
 import base64
 import os
+import uuid
 
 app = Flask(__name__)
 
-# --- Utilitaires ---
+TEMP_DIR = "generated_files"
+os.makedirs(TEMP_DIR, exist_ok=True)
+
+# --- Utility functions ---
 def insert_paragraph_after(paragraph):
     new_p = OxmlElement("w:p")
     paragraph._element.addnext(new_p)
@@ -28,7 +32,7 @@ def add_blue_bullet(paragraph, text):
     run_bullet = paragraph.add_run("■")
     run_bullet.font.color.rgb = RGBColor(60, 122, 178)
     run_bullet.font.size = Pt(8)
-    paragraph.add_run("      ")
+    paragraph.add_run("      ")
     run_text = paragraph.add_run(text)
     run_text.font.size = Pt(11)
 
@@ -48,9 +52,9 @@ def insert_horizontal_line_after(paragraph):
     new_p.paragraph_format.space_after = Pt(10)
     return new_p
 
-# --- Route API principale ---
-@app.route('/modify_docx', methods=['POST'])
-def modify_docx():
+# --- Endpoint to generate the file and return link ---
+@app.route('/generate_docx', methods=['POST'])
+def generate_docx():
     try:
         data = request.get_json()
         if not data:
@@ -62,11 +66,11 @@ def modify_docx():
         if not file_base64 or not competences:
             return abort(400, "Champs 'file_base64' ou 'competences' manquants")
 
-        # Lire le fichier DOCX depuis le base64
+        # Load and modify document
         docx_bytes = base64.b64decode(file_base64)
         doc = Document(BytesIO(docx_bytes))
 
-        # Supprimer entre "Connaissances Métier" et "COMPETENCES Projet"
+        # --- same modification logic as before ---
         found_section = False
         paras_to_delete = []
         for para in doc.paragraphs:
@@ -80,7 +84,6 @@ def modify_docx():
         for para in paras_to_delete:
             delete_paragraph(para)
 
-        # Trouver le paragraphe "Connaissances Métier"
         cm_para = next((p for p in doc.paragraphs if "Connaissances Métier" in p.text), None)
         if not cm_para:
             return abort(400, "'Connaissances Métier' non trouvé dans le document")
@@ -95,29 +98,28 @@ def modify_docx():
             add_blue_bullet(new_para, comp)
             previous_para = new_para
         previous_para.paragraph_format.space_after = Pt(9)
+        # --- end of modification logic ---
 
-        # Sauvegarde dans un buffer mémoire
-        output_stream = BytesIO()
-        doc.save(output_stream)
-        output_stream.seek(0)
+        # Save file to disk with unique ID
+        file_id = str(uuid.uuid4())
+        file_name = f"modified_{file_id}.docx"
+        file_path = os.path.join(TEMP_DIR, file_name)
+        doc.save(file_path)
 
-        # Encodage base64
-        base64_str = base64.b64encode(output_stream.read()).decode('utf-8')
-
-        # Découper en morceaux pour éviter les limites d’IRPA
-        chunk_size = 32000  # 50 KB max par chaîne
-        parts = [base64_str[i:i + chunk_size] for i in range(0, len(base64_str), chunk_size)]
-
-        response = {}
-        for idx, part in enumerate(parts):
-            response[f"part{idx+1}"] = part
-
-        return jsonify(response)
+        # Return download link
+        download_url = f"/download/{file_name}"
+        return jsonify({"download_url": download_url})
 
     except Exception as e:
         return abort(500, f"Erreur serveur: {str(e)}")
 
-# --- Lancement local ---
+
+# --- Endpoint to serve the generated file ---
+@app.route('/download/<path:filename>', methods=['GET'])
+def download_file(filename):
+    return send_from_directory(TEMP_DIR, filename, as_attachment=True)
+
+
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
