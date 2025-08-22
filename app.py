@@ -112,7 +112,7 @@ def generate_docx():
         doc.save(file_path)
 
         # Return relative download link
-        download_url = f"/download/{file_name}"
+        download_url = f"https://filegen-production.up.railway.app/download/{file_name}"
         return jsonify({"download_url": download_url})
 
     except Exception as e:
