@@ -11,8 +11,10 @@ import uuid
 
 app = Flask(__name__)
 
+# Temporary folder to store generated files
 TEMP_DIR = "generated_files"
 os.makedirs(TEMP_DIR, exist_ok=True)
+
 
 # --- Utility functions ---
 def insert_paragraph_after(paragraph):
@@ -52,25 +54,27 @@ def insert_horizontal_line_after(paragraph):
     new_p.paragraph_format.space_after = Pt(10)
     return new_p
 
-# --- Endpoint to generate the file and return link ---
+
+# --- Endpoint to generate DOCX and return link ---
 @app.route('/generate_docx', methods=['POST'])
 def generate_docx():
     try:
         data = request.get_json()
         if not data:
-            return abort(400, "Requête JSON manquante")
+            return abort(400, "Missing JSON request")
 
         file_base64 = data.get("file_base64")
         competences = data.get("competences")
 
         if not file_base64 or not competences:
-            return abort(400, "Champs 'file_base64' ou 'competences' manquants")
+            return abort(400, "Missing 'file_base64' or 'competences'")
 
-        # Load and modify document
+        # Load DOCX from base64
         docx_bytes = base64.b64decode(file_base64)
         doc = Document(BytesIO(docx_bytes))
 
-        # --- same modification logic as before ---
+        # --- Modify document content ---
+        # Delete paragraphs between "Connaissances Métier" and "COMPETENCES Projet"
         found_section = False
         paras_to_delete = []
         for para in doc.paragraphs:
@@ -84,9 +88,10 @@ def generate_docx():
         for para in paras_to_delete:
             delete_paragraph(para)
 
+        # Find "Connaissances Métier" paragraph
         cm_para = next((p for p in doc.paragraphs if "Connaissances Métier" in p.text), None)
         if not cm_para:
-            return abort(400, "'Connaissances Métier' non trouvé dans le document")
+            return abort(400, "'Connaissances Métier' not found")
 
         cm_para.paragraph_format.space_after = 1
         line_para = insert_horizontal_line_after(cm_para)
@@ -98,23 +103,23 @@ def generate_docx():
             add_blue_bullet(new_para, comp)
             previous_para = new_para
         previous_para.paragraph_format.space_after = Pt(9)
-        # --- end of modification logic ---
+        # --- End modification ---
 
-        # Save file to disk with unique ID
+        # Save file with unique name
         file_id = str(uuid.uuid4())
         file_name = f"modified_{file_id}.docx"
         file_path = os.path.join(TEMP_DIR, file_name)
         doc.save(file_path)
 
-        # Return download link
+        # Return relative download link
         download_url = f"/download/{file_name}"
         return jsonify({"download_url": download_url})
 
     except Exception as e:
-        return abort(500, f"Erreur serveur: {str(e)}")
+        return abort(500, f"Server error: {str(e)}")
 
 
-# --- Endpoint to serve the generated file ---
+# --- Endpoint to download generated file ---
 @app.route('/download/<path:filename>', methods=['GET'])
 def download_file(filename):
     return send_from_directory(TEMP_DIR, filename, as_attachment=True)
