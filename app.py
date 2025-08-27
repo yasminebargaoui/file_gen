@@ -11,7 +11,6 @@ import uuid
 
 app = Flask(__name__)
 
-# Temporary folder to store generated files
 TEMP_DIR = "generated_files"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
@@ -55,6 +54,40 @@ def insert_horizontal_line_after(paragraph):
     return new_p
 
 
+# --- Common block replacement ---
+def replace_section(doc, start_marker, end_marker, competences):
+    """Delete content between start_marker and end_marker, then insert competences."""
+    found_section = False
+    paras_to_delete = []
+    for para in doc.paragraphs:
+        if start_marker in para.text:
+            found_section = True
+            continue
+        if found_section and (end_marker and end_marker in para.text):
+            break
+        if found_section:
+            paras_to_delete.append(para)
+    for para in paras_to_delete:
+        delete_paragraph(para)
+
+    # Find start paragraph again (since doc.paragraphs changed after deletion)
+    start_para = next((p for p in doc.paragraphs if start_marker in p.text), None)
+    if not start_para:
+        return False
+
+    start_para.paragraph_format.space_after = 1
+    line_para = insert_horizontal_line_after(start_para)
+
+    previous_para = line_para
+    for comp in competences:
+        new_para = insert_paragraph_after(previous_para)
+        new_para.paragraph_format.line_spacing = Pt(0)
+        add_blue_bullet(new_para, comp)
+        previous_para = new_para
+    previous_para.paragraph_format.space_after = Pt(9)
+    return True
+
+
 # --- Endpoint to generate DOCX and return link ---
 @app.route('/generate_docx', methods=['POST'])
 def generate_docx():
@@ -65,53 +98,32 @@ def generate_docx():
 
         file_base64 = data.get("file_base64")
         competences = data.get("competences")
+        section_type = data.get("type")  # "connaissances_metier" or "projet"
 
-        if not file_base64 or not competences:
-            return abort(400, "Missing 'file_base64' or 'competences'")
+        if not file_base64 or not competences or not section_type:
+            return abort(400, "Missing 'file_base64', 'competences', or 'type'")
 
-        # Load DOCX from base64
+        # Load DOCX
         docx_bytes = base64.b64decode(file_base64)
         doc = Document(BytesIO(docx_bytes))
 
-        # --- Modify document content ---
-        # Delete paragraphs between "Connaissances Métier" and "COMPETENCES Projet"
-        found_section = False
-        paras_to_delete = []
-        for para in doc.paragraphs:
-            if "Connaissances Métier" in para.text:
-                found_section = True
-                continue
-            if found_section and "COMPETENCES Projet" in para.text:
-                break
-            if found_section:
-                paras_to_delete.append(para)
-        for para in paras_to_delete:
-            delete_paragraph(para)
+        # Modify document based on type
+        if section_type == "connaissances_metier":
+            ok = replace_section(doc, "Connaissances Métier", "COMPETENCES Projet", competences)
+        elif section_type == "projet":
+            ok = replace_section(doc, "COMPETENCES Projet", None, competences)
+        else:
+            return abort(400, "Invalid 'type', must be 'connaissances_metier' or 'projet'")
 
-        # Find "Connaissances Métier" paragraph
-        cm_para = next((p for p in doc.paragraphs if "Connaissances Métier" in p.text), None)
-        if not cm_para:
-            return abort(400, "'Connaissances Métier' not found")
+        if not ok:
+            return abort(400, f"'{section_type}' section not found")
 
-        cm_para.paragraph_format.space_after = 1
-        line_para = insert_horizontal_line_after(cm_para)
-
-        previous_para = line_para
-        for comp in competences:
-            new_para = insert_paragraph_after(previous_para)
-            new_para.paragraph_format.line_spacing = Pt(0)
-            add_blue_bullet(new_para, comp)
-            previous_para = new_para
-        previous_para.paragraph_format.space_after = Pt(9)
-        # --- End modification ---
-
-        # Save file with unique name
+        # Save modified docx
         file_id = str(uuid.uuid4())
         file_name = f"modified_{file_id}.docx"
         file_path = os.path.join(TEMP_DIR, file_name)
         doc.save(file_path)
 
-        # Return relative download link
         download_url = f"https://filegen-production.up.railway.app/download/{file_name}"
         return jsonify({"download_url": download_url})
 
